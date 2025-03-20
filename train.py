@@ -1,17 +1,18 @@
 import torch
-block_size = 1024
+block_size = 128
 batch_size = 8
+vocab_size = 128
 import torch
 import numpy as np
 import os
-def get_batch(split):
-    dtype = np.uint16
-    data = np.memmap(os.path.join(os.getcwd(), f'{split}.bin'), dtype=dtype, mode='r')
-    #print('data is ', type(data))
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
-    y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
-    return x, y
+def get_batch():
+   x = []
+   y = []
+   
+   x = torch.stack([torch.randperm(vocab_size)[:block_size] for _ in range(batch_size)])
+   y = torch.sort(x, dim=1)   
+   return x, y
+
 
 import math
 warmup_iters = 2000
@@ -64,11 +65,11 @@ print(f'using device: {device}')
 
 
 optimizer = create_optimizer(mymodel, weight_decay=0.1, learning_rate=6e-4, device=device)
-max_iter = 10000
+max_iter = 1000
 for itr in range(max_iter):
    optimizer.zero_grad()
-   x,y = get_batch('train')
-   logits, loss = mymodel(x,y)
+   x, y = get_batch()
+   logits, loss = mymodel(x, y)
    loss.backward()
    lr = get_lr(itr)
    for param_group in optimizer.param_groups:

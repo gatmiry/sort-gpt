@@ -53,6 +53,7 @@ class Block(nn.Module):
 class GPT(nn.Module):
     def __init__(self, config):
         super().__init__()
+        self.n = config.vocab_size
         self.n_layers = config.n_layers
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
@@ -77,19 +78,39 @@ class GPT(nn.Module):
 
     def forward(self, idx, targets=None):
         B, T = idx.size()
-        pe = torch.range(0, T-1, dtype=torch.long, device=idx.device)
-        x = self.transformer.wpe(pe) + self.transformer.wte(idx)
+        x = self.transformer.wte(idx)
         for block in self.transformer.h:
             x = block(x)
         logits = self.lm_head(x)
-        loss = None
-        if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        v_loss_measure = torch.func.vmap(self.loss_measure)
+        loss = v_loss_measure(torch.argmax(logits, dim=-1), targets).mean()
         return logits, loss
     
+    def loss_measure(self, seq1, seq2):
+        assert len(seq1) == self.n, 'two sequences provided in loss_measure should have equal length'
+        total = 0
+        mydict = {}
+        sol = {}
+        # build sol
+        for i in range(len(seq2)):
+            sol[seq2[i]] = i
+
+        for i in range(len(seq1)):
+            if seq1[i] not in sol:
+                total += self.n
+            elif seq1[i] not in mydict:
+                mydict[seq1[i]] = abs(sol[seq1[i]] - i)
+            else:
+                mydict[seq1[i]] = min(mydict[seq1[i]], abs(sol[seq1[i]] - i))
+        for num in sol:
+            if num not in mydict:
+                total += self.n
+            else:
+                total += mydict[num]
+        return total / self.n
 class GPTConfig():
-    block_size: int = 1024
-    vocab_size: int = 50257
-    n_layers = 12
-    n_heads = 12
-    n_embd = 768
+    block_size: int = 128
+    vocab_size: int = 128
+    n_layers = 6
+    n_heads = 4
+    n_embd = 256
